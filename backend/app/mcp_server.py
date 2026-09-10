@@ -48,6 +48,36 @@ def get_job_logs(job_id: int) -> dict:
 
 
 @mcp.tool()
+def get_cloud_run_evidence(service: str = "") -> dict:
+    """Return read-only Cloud Run service readiness and revision evidence."""
+    from .gcp_evidence import get_cloud_run_evidence as collect_cloud_run
+
+    try:
+        return collect_cloud_run(service or None)
+    except Exception as exc:
+        return {
+            "source": "cloud_run",
+            "available": False,
+            "error": str(exc),
+        }
+
+
+@mcp.tool()
+def get_cloud_logging_evidence(service: str = "", limit: int = 30) -> dict:
+    """Return recent Cloud Run error logs for evidence collection."""
+    from .gcp_evidence import get_cloud_logging_evidence as collect_logs
+
+    try:
+        return collect_logs(service or None, max(1, min(limit, 100)))
+    except Exception as exc:
+        return {
+            "source": "cloud_logging",
+            "available": False,
+            "error": str(exc),
+        }
+
+
+@mcp.tool()
 def investigate_incident(incident_id: str) -> dict:
     """Collect incident evidence and produce a structured diagnosis."""
     from .main import build_incident
