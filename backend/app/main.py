@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .gcp_routes import router as gcp_router
 from .investigator import investigate_incident
 from .mcp_server import mcp
 
@@ -21,9 +22,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI CI/CD Platform Engineer Agent",
-    version="0.6.0",
+    version="0.7.0",
     lifespan=lifespan,
 )
+app.include_router(gcp_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,7 +69,6 @@ def fetch_deployment_runs() -> list[dict]:
 def normalize_run(run: dict) -> dict:
     conclusion = run.get("conclusion")
     status = run.get("status")
-
     if status != "completed":
         display_status = "RUNNING"
     elif conclusion == "success":
@@ -78,7 +79,6 @@ def normalize_run(run: dict) -> dict:
     created_at = run.get("created_at")
     started = datetime.fromisoformat(created_at.replace("Z", "+00:00")) if created_at else None
     now = datetime.now(timezone.utc)
-
     if not started:
         relative_time = "unknown"
     else:
@@ -205,9 +205,7 @@ def build_incident(incident_id: str) -> dict:
             "url": job.get("html_url"),
         }
         try:
-            logs = github_get_text(
-                f"/repos/{GITHUB_REPOSITORY}/actions/jobs/{job['id']}/logs"
-            )
+            logs = github_get_text(f"/repos/{GITHUB_REPOSITORY}/actions/jobs/{job['id']}/logs")
             matches = extract_log_evidence(logs)
             if matches:
                 job_evidence["log_evidence"] = matches
@@ -237,8 +235,7 @@ def health() -> dict[str, str]:
 @app.get("/api/v1/deployments")
 def deployments() -> list[dict]:
     try:
-        runs = fetch_deployment_runs()
-        return [normalize_run(run) for run in runs]
+        return [normalize_run(run) for run in fetch_deployment_runs()]
     except (HTTPError, URLError, TimeoutError, ValueError):
         return []
 
@@ -252,10 +249,7 @@ def deployment_details(run_id: int) -> dict:
             {"per_page": 100},
         )
         jobs = jobs_data.get("jobs", []) if isinstance(jobs_data, dict) else []
-        return {
-            "deployment": normalize_run(run),
-            "jobs": [normalize_job(job) for job in jobs],
-        }
+        return {"deployment": normalize_run(run), "jobs": [normalize_job(job) for job in jobs]}
     except (HTTPError, URLError, TimeoutError, ValueError):
         return {"deployment": None, "jobs": []}
 
@@ -283,7 +277,6 @@ def incident_investigation(incident_id: str) -> dict:
         evidence = build_incident(incident_id)
         if not evidence.get("incident"):
             return {"incident_id": incident_id, "status": "NOT_FOUND"}
-
         investigation = investigate_incident(evidence)
         return {
             "incident_id": incident_id,
@@ -292,20 +285,15 @@ def incident_investigation(incident_id: str) -> dict:
             "source_evidence": evidence,
         }
     except (HTTPError, URLError, TimeoutError, ValueError) as exc:
-        return {
-            "incident_id": incident_id,
-            "status": "ERROR",
-            "error": str(exc),
-        }
+        return {"incident_id": incident_id, "status": "ERROR", "error": str(exc)}
 
 
 @app.get("/api/v1/overview")
 def overview() -> dict:
     try:
         runs = fetch_deployment_runs()
-        deployments_24h = []
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-
+        deployments_24h = []
         for run in runs:
             created_at = run.get("created_at")
             if not created_at:
@@ -320,13 +308,8 @@ def overview() -> dict:
             for run in deployments_24h
             if run.get("status") == "completed" and run.get("conclusion") != "success"
         )
-
         return {
-            "deployments": {
-                "total": len(deployments_24h),
-                "successful": successful,
-                "failed": failed,
-            },
+            "deployments": {"total": len(deployments_24h), "successful": successful, "failed": failed},
             "active_incidents": 1 if failed else 0,
             "ai_investigations": 1 if failed else 0,
         }
@@ -346,7 +329,5 @@ mcp_transport_security = TransportSecuritySettings(
 )
 app.mount(
     "/mcp",
-    mcp.streamable_http_app(
-        transport_security=mcp_transport_security,
-    ),
+    mcp.streamable_http_app(transport_security=mcp_transport_security),
 )
