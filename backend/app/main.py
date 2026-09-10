@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .investigator import investigate_incident
 from .mcp_server import mcp
 
 
@@ -20,7 +21,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI CI/CD Platform Engineer Agent",
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
 )
 
@@ -276,6 +277,28 @@ def incident_details(incident_id: str) -> dict:
         return {"incident": None, "evidence": []}
 
 
+@app.get("/api/v1/incidents/{incident_id}/investigation")
+def incident_investigation(incident_id: str) -> dict:
+    try:
+        evidence = build_incident(incident_id)
+        if not evidence.get("incident"):
+            return {"incident_id": incident_id, "status": "NOT_FOUND"}
+
+        investigation = investigate_incident(evidence)
+        return {
+            "incident_id": incident_id,
+            "status": "ANALYZED",
+            "investigation": investigation,
+            "source_evidence": evidence,
+        }
+    except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+        return {
+            "incident_id": incident_id,
+            "status": "ERROR",
+            "error": str(exc),
+        }
+
+
 @app.get("/api/v1/overview")
 def overview() -> dict:
     try:
@@ -315,7 +338,6 @@ def overview() -> dict:
         }
 
 
-# MCP is mounted beside the REST API. Cloud Run provides the stable run.app host.
 mcp_transport_security = TransportSecuritySettings(
     allowed_hosts=[
         "ai-cicd-agent-jeal5mhmha-el.a.run.app",
