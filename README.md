@@ -1,10 +1,6 @@
 # AI CI/CD Platform Engineer Agent
 
-An AI-assisted CI/CD platform engineering system that detects failed deployments, collects evidence from GitHub Actions and Google Cloud, investigates the failure, recommends a fix, and proposes remediation through a GitHub pull request.
-
-## Goal
-
-Build a practical Platform Engineering Agent with an evidence-first workflow.
+A minimal working AI-assisted CI/CD platform engineering system that detects failed deployments, collects evidence, investigates the failure, recommends a fix, creates a GitHub pull request for a controlled remediation, and verifies the deployment after the PR is merged.
 
 ## End-to-End Flow
 
@@ -25,32 +21,29 @@ Cloud Run
    │
    └── Failure
          ↓
-      Incident Workflow
+      Automatic Incident Workflow
          ↓
-      Collect Evidence
+      Collect GitHub Evidence
          ↓
-      MCP Tools
-         ├── GitHub Actions
-         ├── Cloud Run
-         └── Cloud Logging
+      MCP / Agent Tools
          ↓
-      AI Agent / Gemini
+      AI Investigation
          ↓
       Root Cause + Evidence + Confidence
          ↓
       Recommended Fix
          ↓
-      GitHub Branch
+      Remediation Branch
          ↓
-      Pull Request
+      GitHub Pull Request
          ↓
-      Human Review / Merge
+      Human Merge
          ↓
       GitHub Actions
          ↓
       Cloud Run
          ↓
-      Post-Fix Verification
+      Verify
          ↓
       Incident Resolved
 ```
@@ -67,36 +60,56 @@ Cloud Run
 - **Runtime:** Google Cloud Run
 - **Database:** Cloud SQL PostgreSQL
 - **Secrets:** Google Secret Manager
-- **Evidence:** GitHub Actions logs, Cloud Run state, and Cloud Logging
+- **Evidence:** GitHub Actions logs, Cloud Run, and Cloud Logging
 
-## Current Flow
+## What Works
 
-1. GitHub Actions builds and deploys the application.
-2. A failed deployment triggers the incident investigation workflow automatically.
-3. The workflow collects the failed run, jobs, and relevant log lines.
-4. Evidence is submitted to the agent.
-5. MCP tools expose GitHub, Cloud Run, and Cloud Logging evidence.
-6. The investigator determines the likely root cause.
-7. The result contains category, confidence, evidence, recommended fix, risk, and approval requirement.
-8. Investigations and audit events can be persisted in Cloud SQL.
-9. The frontend displays deployment evidence and AI investigation results.
+1. GitHub Actions builds and deploys the backend.
+2. Cloud Run runs the application.
+3. Cloud SQL stores investigation results and audit events.
+4. A failed deployment automatically triggers the incident workflow.
+5. The workflow collects failed jobs and relevant log lines.
+6. Evidence is submitted to the agent.
+7. The investigator performs deterministic diagnosis first and Gemini reasoning for unknown failures.
+8. The investigation returns root cause, category, confidence, evidence, recommended fix, risk, and approval requirement.
+9. The frontend can display deployment evidence and investigation results.
+10. A controlled demo failure can automatically produce a remediation GitHub PR.
 
-## Remaining Core Flow
+## Minimal Demo
+
+The repository contains a controlled failure switch: `backend/DEMO_FAIL`.
+
+When this file exists, the deployment workflow intentionally fails before deployment. This lets the complete agent flow be demonstrated without breaking the real application.
+
+### Demo sequence
 
 ```text
-Diagnosis
-   → Generate Fix
-   → Create Branch
-   → Commit Patch
-   → Create Pull Request
-   → Human Review / Merge
-   → CI/CD
-   → Cloud Run
-   → Verify
-   → Resolve Incident
+1. Add backend/DEMO_FAIL
+        ↓
+2. Push to main
+        ↓
+3. Deploy Backend fails intentionally
+        ↓
+4. AI Incident Investigation starts automatically
+        ↓
+5. Failed logs are collected
+        ↓
+6. Agent investigates INC-1024
+        ↓
+7. Remediation workflow removes backend/DEMO_FAIL
+        ↓
+8. Agent creates a GitHub PR
+        ↓
+9. Review and merge the PR
+        ↓
+10. Deploy Backend runs again
+        ↓
+11. Cloud Run deployment succeeds
+        ↓
+12. Verify the service
 ```
 
-The agent should propose changes through GitHub rather than directly changing production.
+The demo remediation is intentionally simple: the agent removes the controlled failure marker. This proves the complete **failure → evidence → investigation → remediation PR → CI/CD → successful deployment** loop without requiring enterprise-level automation.
 
 ## Failure Types
 
@@ -108,6 +121,17 @@ Current deterministic investigation includes:
 - HTTP `500` → runtime failure
 
 Other failures can be investigated using Gemini.
+
+## MCP Tools
+
+The agent exposes tools for:
+
+- GitHub incident evidence
+- Deployment evidence
+- GitHub job logs
+- Incident investigation
+- Cloud Run evidence
+- Cloud Logging evidence
 
 ## Project Structure
 
@@ -125,24 +149,7 @@ Other failures can be investigated using Gemini.
 
 ## Development Focus
 
-The current goal is the **working end-to-end flow**, not enterprise-level hardening. Advanced security controls, extensive UI polish, and other production hardening can be added later.
-
-## Expected Outcome
-
-The finished system should take a CI/CD failure through:
-
-```text
-Failure
-  → Evidence
-  → Investigation
-  → Root Cause
-  → Fix Proposal
-  → GitHub PR
-  → CI/CD
-  → Verification
-```
-
-and provide a clear audit trail of what happened and why.
+This project intentionally focuses on a **minimal working end-to-end flow** rather than enterprise-level hardening. Advanced authentication, security controls, extensive UI polish, multi-environment deployments, and other production features can be added later.
 
 ## GCP
 
