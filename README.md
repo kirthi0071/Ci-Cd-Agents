@@ -75,20 +75,6 @@ Cloud Run
 9. The frontend can display deployment evidence and investigation results.
 10. A controlled demo failure can automatically produce a remediation GitHub PR.
 
-## UI Screenshots
-
-The deployed frontend provides a command-center view for deployments and active AI investigations, plus detailed execution evidence for individual GitHub Actions runs.
-
-### Platform Overview
-
-![AI CI/CD Platform overview](docs/images/ai-cicd-platform-overview.svg)
-
-### Deployment Details and Evidence
-
-![Deployment details and execution evidence](docs/images/deployment-details-evidence.svg)
-
-These screenshots are kept in the repository so the current UI and evidence workflow remain documented for future reference.
-
 ## Minimal Demo
 
 The repository contains a controlled failure switch: `backend/DEMO_FAIL`.
@@ -156,9 +142,6 @@ The agent exposes tools for:
 ├── frontend/
 ├── infra/
 ├── docs/
-│   ├── images/
-│   │   ├── ai-cicd-platform-overview.svg
-│   │   └── deployment-details-evidence.svg
 │   └── PROJECT_FLOW.md
 └── .github/
     └── workflows/
