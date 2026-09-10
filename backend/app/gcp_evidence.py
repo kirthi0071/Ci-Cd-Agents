@@ -5,7 +5,7 @@ from google.cloud import run_v2
 
 
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "project-c98d2dac-2409-44bd-aba")
-REGION = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south1")
+REGION = os.getenv("CLOUD_RUN_REGION", "asia-south1")
 SERVICE = os.getenv("CLOUD_RUN_SERVICE", "ai-cicd-agent")
 
 
