@@ -19,24 +19,21 @@ Cloud Run
    │
    └── Failure
          ↓
-      Incident Workflow
+      Automatic Incident Workflow
          ↓
       Collect Evidence
          ↓
-      MCP Tools
-         ├── GitHub Actions
-         ├── Cloud Run
-         └── Cloud Logging
+      MCP / Agent Tools
          ↓
-      AI Agent / Gemini
+      AI Investigation
          ↓
       Root Cause + Evidence + Confidence
          ↓
       Recommended Fix
          ↓
-      GitHub Branch
+      Remediation Branch
          ↓
-      Pull Request
+      GitHub Pull Request
          ↓
       Human Review / Merge
          ↓
@@ -44,7 +41,7 @@ Cloud Run
          ↓
       Cloud Run
          ↓
-      Post-Fix Verification
+      Verify
          ↓
       Incident Resolved
 ```
@@ -52,18 +49,45 @@ Cloud Run
 ## Current State
 
 - Foundation, GCP infrastructure, and CI/CD are working.
-- Evidence collection and automatic incident investigation are implemented.
-- MCP tools expose deployment and Google Cloud evidence.
-- AI investigation returns root cause, category, confidence, evidence, recommended fix, risk, and approval requirement.
 - Cloud SQL persistence and the investigation UI are implemented.
+- Evidence collection and automatic incident investigation are implemented.
+- MCP tools expose GitHub Actions, Cloud Run, and Cloud Logging evidence.
+- AI investigation returns root cause, category, confidence, evidence, recommended fix, risk, and approval requirement.
+- A minimal controlled remediation PR flow is implemented for the demo failure marker.
+
+## Minimal Demo
+
+Create `backend/DEMO_FAIL` and push it to `main`.
+
+The deployment workflow intentionally fails when that marker exists. The automatic incident workflow then collects the failed logs, sends evidence to the agent, and creates a remediation PR that removes the marker. After the PR is merged, normal CI/CD runs and Cloud Run deploys successfully.
+
+```text
+DEMO_FAIL
+   ↓
+Deploy fails
+   ↓
+Incident workflow
+   ↓
+Evidence
+   ↓
+AI investigation
+   ↓
+Remove DEMO_FAIL
+   ↓
+PR
+   ↓
+Merge
+   ↓
+Deploy
+   ↓
+Verify
+```
 
 ## Remaining Core Work
 
-1. Finish the tool-using agent orchestration.
-2. Generate a concrete remediation proposal from the diagnosis.
-3. Create a GitHub branch and commit the proposed fix.
-4. Create a GitHub PR instead of changing production directly.
-5. Run CI/CD after merge.
-6. Verify the repaired Cloud Run service and close the incident.
+1. Make the agent orchestration more tool-driven instead of mostly deterministic.
+2. Expand remediation beyond the controlled demo marker.
+3. Add post-deployment verification to the incident lifecycle.
+4. Connect the final incident state to the frontend.
 
 Security hardening and extensive UI polish are intentionally secondary for this project phase.
