@@ -45,3 +45,25 @@ def get_job_logs(job_id: int) -> dict:
         "evidence": extract_log_evidence(logs),
         "log_available": bool(logs),
     }
+
+
+@mcp.tool()
+def investigate_incident(incident_id: str) -> dict:
+    """Collect incident evidence and produce a structured diagnosis."""
+    from .main import build_incident
+    from .investigator import investigate_incident as run_investigation
+
+    evidence = build_incident(incident_id)
+    if not evidence.get("incident"):
+        return {
+            "incident_id": incident_id,
+            "status": "NOT_FOUND",
+        }
+
+    investigation = run_investigation(evidence)
+    return {
+        "incident_id": incident_id,
+        "status": "ANALYZED",
+        "investigation": investigation,
+        "source_evidence": evidence,
+    }
