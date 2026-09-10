@@ -25,14 +25,34 @@ jobs:
 
           run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
           jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100")"
+          gh run view "$RUN_ID" --log-failed > investigation/failed.log || true
 
-          python - <<'PY' "$run_json" "$jobs_json" "$RUN_ID" > investigation/evidence.json
+          python - <<'PY' "$run_json" "$jobs_json" "investigation/failed.log"
           import json
           import sys
 
           run = json.loads(sys.argv[1])
           jobs = json.loads(sys.argv[2]).get("jobs", [])
+          log_file = sys.argv[3]
           failed_jobs = [job for job in jobs if job.get("conclusion") == "failure"]
+
+          with open(log_file, encoding="utf-8", errors="replace") as handle:
+              lines = handle.read().splitlines()
+
+          patterns = (
+              "error", "exception", "failed", "failure", "traceback",
+              "modulenotfounderror", "permission denied", "exit code",
+          )
+          matches = []
+          for raw in lines:
+              line = raw.strip()
+              if not line or len(line) > 500:
+                  continue
+              if any(pattern in line.lower() for pattern in patterns):
+                  if line not in matches:
+                      matches.append(line)
+              if len(matches) >= 30:
+                  break
 
           evidence = {
               "incident": {
@@ -62,33 +82,31 @@ jobs:
               ],
           }
 
-          for job in failed_jobs[:3]:
-              evidence["evidence"].append({
+          for index, job in enumerate(failed_jobs[:3]):
+              job_evidence = {
                   "source": "github_actions",
                   "type": "job",
                   "finding": f"Job '{job.get('name')}' failed",
                   "job_id": job.get("id"),
                   "url": job.get("html_url"),
-                  "log_evidence": [],
-              })
+                  "log_evidence": matches if index == 0 else [],
+              }
+              evidence["evidence"].append(job_evidence)
 
-          print(json.dumps(evidence))
+          with open("investigation/evidence.json", "w", encoding="utf-8") as handle:
+              json.dump(evidence, handle)
+          print(json.dumps(evidence, indent=2))
           PY
 
-          evidence_file="investigation/evidence.json"
-          evidence_json="$(cat "$evidence_file")"
-
-          python - <<'PY' "$evidence_file" "$RUN_ID" "$AGENT_URL"
+          python - <<'PY'
           import json
-          import sys
           import urllib.request
 
-          evidence_file, run_id, agent_url = sys.argv[1:]
-          with open(evidence_file, encoding="utf-8") as handle:
+          with open("investigation/evidence.json", encoding="utf-8") as handle:
               payload = json.load(handle)
 
           request = urllib.request.Request(
-              f"{agent_url}/api/v1/incidents/INC-1024/investigation",
+              f"{${AGENT_URL}/api/v1/incidents/INC-1024/investigation}",
               data=json.dumps({"source_evidence": payload}).encode(),
               headers={"Content-Type": "application/json"},
               method="POST",
