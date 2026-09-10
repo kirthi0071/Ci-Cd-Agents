@@ -20,9 +20,23 @@ type Incident = {
   summary: string;
 };
 
+type Deployment = {
+  id: number;
+  workflow: string;
+  service: string;
+  environment: string;
+  status: string;
+  conclusion: string | null;
+  branch: string;
+  commit: string;
+  time: string;
+  url: string | null;
+};
+
 function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,25 +46,25 @@ function App() {
         setLoading(true);
         setError(null);
 
-        const [overviewResponse, incidentsResponse] = await Promise.all([
+        const [overviewResponse, incidentsResponse, deploymentsResponse] = await Promise.all([
           fetch(`${API_BASE_URL}/api/v1/overview`),
           fetch(`${API_BASE_URL}/api/v1/incidents`),
+          fetch(`${API_BASE_URL}/api/v1/deployments`),
         ]);
 
-        if (!overviewResponse.ok) {
-          throw new Error(`Overview API returned ${overviewResponse.status}`);
-        }
-        if (!incidentsResponse.ok) {
-          throw new Error(`Incidents API returned ${incidentsResponse.status}`);
-        }
+        if (!overviewResponse.ok) throw new Error(`Overview API returned ${overviewResponse.status}`);
+        if (!incidentsResponse.ok) throw new Error(`Incidents API returned ${incidentsResponse.status}`);
+        if (!deploymentsResponse.ok) throw new Error(`Deployments API returned ${deploymentsResponse.status}`);
 
-        const [overviewData, incidentsData] = await Promise.all([
+        const [overviewData, incidentsData, deploymentsData] = await Promise.all([
           overviewResponse.json() as Promise<Overview>,
           incidentsResponse.json() as Promise<Incident[]>,
+          deploymentsResponse.json() as Promise<Deployment[]>,
         ]);
 
         setOverview(overviewData);
         setIncidents(incidentsData);
+        setDeployments(deploymentsData);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to load dashboard data');
       } finally {
@@ -92,7 +106,13 @@ function App() {
         <section className="grid-main">
           <div className="panel deployments"><div className="panel-header"><div><p className="eyebrow">DELIVERY</p><h2>Recent deployments</h2></div><button>View all →</button></div>
             <div className="table">
-              {loading ? <div className="empty-state">Loading deployment data from FastAPI…</div> : <div className="empty-state">Deployment history API is the next backend slice.</div>}
+              {loading ? <div className="empty-state">Loading deployment data from GitHub Actions…</div> : deployments.length === 0 ? <div className="empty-state">No GitHub Actions deployments found.</div> : deployments.slice(0, 6).map((deployment) => (
+                <div className="row" key={deployment.id}>
+                  <div><strong>{deployment.service}</strong><span>{deployment.branch} · {deployment.commit}</span></div>
+                  <Status status={deployment.status}/>
+                  <span className="muted">{deployment.time}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -108,9 +128,9 @@ function App() {
         </section>
 
         <section className="panel activity"><div className="panel-header"><div><p className="eyebrow">OBSERVABILITY</p><h2>Platform activity</h2></div><span className="live"><i/> LIVE</span></div><div className="activity-list">
-          <Activity time="—" text="Dashboard data is now loaded from the FastAPI backend"/>
-          <Activity time="—" text="GitHub Actions → Cloud Run deployment is operational"/>
-          <Activity time="—" text="AI investigation pipeline will be connected in the next phase"/>
+          <Activity time="LIVE" text="Deployment history is loaded from GitHub Actions"/>
+          <Activity time="LIVE" text="Dashboard metrics are loaded from FastAPI"/>
+          <Activity time="NEXT" text="AI investigation pipeline will consume failed deployments"/>
         </div></section>
       </main>
     </div>
@@ -118,6 +138,7 @@ function App() {
 }
 
 function Metric({label,value,detail,danger,accent}:{label:string;value:string;detail:string;danger?:boolean;accent?:boolean}) { return <div className={`metric ${danger?'danger':''} ${accent?'accent':''}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div> }
+function Status({status}:{status:string}) { return <span className={`status ${status.toLowerCase()}`}><i/> {status}</span> }
 function Step({done,text}:{done?:boolean;text:string}) { return <div className="step"><span className={done?'check':'pending'}>{done?'✓':'•'}</span>{text}</div> }
 function Activity({time,text}:{time:string;text:string}) { return <div className="activity-row"><time>{time}</time><span>{text}</span></div> }
 
