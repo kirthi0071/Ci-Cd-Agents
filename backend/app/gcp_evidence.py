@@ -15,9 +15,9 @@ def get_cloud_run_evidence(service: str | None = None) -> dict:
     name = f"projects/{PROJECT_ID}/locations/{REGION}/services/{service_name}"
     resource = client.get_service(name=name)
 
-    latest_revision = resource.latest_ready_revision
+    condition = resource.terminal_condition
     conditions = []
-    for condition in resource.terminal_condition:
+    if condition:
         conditions.append(
             {
                 "type": condition.type_,
@@ -31,9 +31,10 @@ def get_cloud_run_evidence(service: str | None = None) -> dict:
         "source": "cloud_run",
         "service": service_name,
         "location": REGION,
-        "latest_ready_revision": latest_revision,
+        "latest_ready_revision": resource.latest_ready_revision,
         "uri": resource.uri,
         "generation": resource.generation,
+        "observed_generation": resource.observed_generation,
         "conditions": conditions,
     }
 
