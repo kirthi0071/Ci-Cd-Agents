@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI CI/CD Platform Engineer Agent", version="0.2.1")
+app = FastAPI(title="AI CI/CD Platform Engineer Agent", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,21 +19,27 @@ app.add_middleware(
 
 GITHUB_REPOSITORY = "kirthi0071/Ci-Cd-Agents"
 GITHUB_API = "https://api.github.com"
+GITHUB_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "ai-cicd-platform-agent",
+}
+
+
+def github_get(path: str, params: dict | None = None) -> dict | list:
+    query = f"?{urlencode(params)}" if params else ""
+    request = Request(f"{GITHUB_API}{path}{query}", headers=GITHUB_HEADERS)
+    with urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def fetch_deployment_runs() -> list[dict]:
     """Fetch recent GitHub Actions deployment runs for this platform repo."""
-    query = urlencode({"per_page": 20, "event": "push", "branch": "main"})
-    request = Request(
-        f"{GITHUB_API}/repos/{GITHUB_REPOSITORY}/actions/runs?{query}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ai-cicd-platform-agent",
-        },
+    data = github_get(
+        f"/repos/{GITHUB_REPOSITORY}/actions/runs",
+        {"per_page": 20, "event": "push", "branch": "main"},
     )
-    with urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8")).get("workflow_runs", [])
+    return data.get("workflow_runs", []) if isinstance(data, dict) else []
 
 
 def normalize_run(run: dict) -> dict:
@@ -79,6 +85,29 @@ def normalize_run(run: dict) -> dict:
     }
 
 
+def normalize_job(job: dict) -> dict:
+    return {
+        "id": job.get("id"),
+        "name": job.get("name", "GitHub Actions job"),
+        "status": job.get("status"),
+        "conclusion": job.get("conclusion"),
+        "started_at": job.get("started_at"),
+        "completed_at": job.get("completed_at"),
+        "url": job.get("html_url"),
+        "steps": [
+            {
+                "number": step.get("number"),
+                "name": step.get("name"),
+                "status": step.get("status"),
+                "conclusion": step.get("conclusion"),
+                "started_at": step.get("started_at"),
+                "completed_at": step.get("completed_at"),
+            }
+            for step in (job.get("steps") or [])
+        ],
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "ai-cicd-agent"}
@@ -92,6 +121,24 @@ def deployments() -> list[dict]:
         return [normalize_run(run) for run in runs]
     except (HTTPError, URLError, TimeoutError, ValueError):
         return []
+
+
+@app.get("/api/v1/deployments/{run_id}")
+def deployment_details(run_id: int) -> dict:
+    """Return a deployment plus its GitHub Actions jobs and step results."""
+    try:
+        run = github_get(f"/repos/{GITHUB_REPOSITORY}/actions/runs/{run_id}")
+        jobs_data = github_get(
+            f"/repos/{GITHUB_REPOSITORY}/actions/runs/{run_id}/jobs",
+            {"per_page": 100},
+        )
+        jobs = jobs_data.get("jobs", []) if isinstance(jobs_data, dict) else []
+        return {
+            "deployment": normalize_run(run),
+            "jobs": [normalize_job(job) for job in jobs],
+        }
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return {"deployment": None, "jobs": []}
 
 
 @app.get("/api/v1/overview")
