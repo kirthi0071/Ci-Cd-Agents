@@ -83,15 +83,14 @@ jobs:
           }
 
           for index, job in enumerate(failed_jobs[:3]):
-              job_evidence = {
+              evidence["evidence"].append({
                   "source": "github_actions",
                   "type": "job",
                   "finding": f"Job '{job.get('name')}' failed",
                   "job_id": job.get("id"),
                   "url": job.get("html_url"),
                   "log_evidence": matches if index == 0 else [],
-              }
-              evidence["evidence"].append(job_evidence)
+              })
 
           with open("investigation/evidence.json", "w", encoding="utf-8") as handle:
               json.dump(evidence, handle)
@@ -100,13 +99,15 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           import urllib.request
 
           with open("investigation/evidence.json", encoding="utf-8") as handle:
               payload = json.load(handle)
 
+          agent_url = os.environ["AGENT_URL"]
           request = urllib.request.Request(
-              f"{${AGENT_URL}/api/v1/incidents/INC-1024/investigation}",
+              f"{agent_url}/api/v1/incidents/INC-1024/investigation",
               data=json.dumps({"source_evidence": payload}).encode(),
               headers={"Content-Type": "application/json"},
               method="POST",
