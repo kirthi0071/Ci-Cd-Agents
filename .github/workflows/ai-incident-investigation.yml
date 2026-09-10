@@ -6,14 +6,20 @@ on:
     types: [completed]
 
 permissions:
-  contents: read
+  contents: write
   actions: read
+  pull-requests: write
 
 jobs:
   investigate:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout failed revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
       - name: Collect failed deployment evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -42,6 +48,7 @@ jobs:
           patterns = (
               "error", "exception", "failed", "failure", "traceback",
               "modulenotfounderror", "permission denied", "exit code",
+              "demo_incident",
           )
           matches = []
           for raw in lines:
@@ -118,6 +125,36 @@ jobs:
               handle.write(result)
           print(result)
           PY
+
+      - name: Create remediation PR for controlled demo incident
+        if: ${{ hashFiles('backend/DEMO_FAIL') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          BRANCH="agent/remediate-inc-${RUN_ID}"
+          git switch -c "$BRANCH"
+          rm backend/DEMO_FAIL
+          git config user.name "AI CI/CD Agent"
+          git config user.email "ai-cicd-agent@users.noreply.github.com"
+          git add backend/DEMO_FAIL
+          git commit -m "fix(agent): remediate controlled deployment incident"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "fix(agent): remediate deployment incident #${RUN_ID}" \
+            --body "## AI CI/CD Agent remediation
+
+The deployment failed because the controlled demo failure marker `backend/DEMO_FAIL` was present.
+
+### Evidence
+- Failed Deploy Backend run: ${RUN_ID}
+- Agent investigation: INC-1024
+- Remediation: remove the controlled failure marker
+
+After merge, the normal Deploy Backend workflow will run again."
 
       - name: Upload investigation evidence
         uses: actions/upload-artifact@v4
