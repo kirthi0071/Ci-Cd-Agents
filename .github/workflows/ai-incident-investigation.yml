@@ -14,22 +14,95 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Investigate failed deployment
+      - name: Collect failed deployment evidence
         env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
           AGENT_URL: https://ai-cicd-agent-jeal5mhmha-el.a.run.app
         run: |
           set -euo pipefail
           mkdir -p investigation
-          curl --fail --silent --show-error \
-            --retry 3 \
-            --retry-delay 5 \
-            "$AGENT_URL/api/v1/incidents/INC-1024/investigation" \
-            -o investigation/INC-1024.json
-          cat investigation/INC-1024.json
+
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100")"
+
+          python - <<'PY' "$run_json" "$jobs_json" "$RUN_ID" > investigation/evidence.json
+          import json
+          import sys
+
+          run = json.loads(sys.argv[1])
+          jobs = json.loads(sys.argv[2]).get("jobs", [])
+          failed_jobs = [job for job in jobs if job.get("conclusion") == "failure"]
+
+          evidence = {
+              "incident": {
+                  "id": "INC-1024",
+                  "service": "ai-cicd-agent",
+                  "environment": "production",
+                  "severity": "HIGH",
+                  "status": "INVESTIGATING",
+                  "summary": f"GitHub Actions deployment run #{run.get('run_number')} failed.",
+                  "deployment": {
+                      "id": run.get("id"),
+                      "workflow": run.get("name"),
+                      "run_number": run.get("run_number"),
+                      "commit": (run.get("head_sha") or "")[:7],
+                      "url": run.get("html_url"),
+                  },
+              },
+              "evidence": [
+                  {
+                      "source": "github_actions",
+                      "type": "workflow_run",
+                      "finding": f"{run.get('name', 'GitHub Actions')} run #{run.get('run_number')} failed",
+                      "run_id": run.get("id"),
+                      "commit": (run.get("head_sha") or "")[:7],
+                      "url": run.get("html_url"),
+                  }
+              ],
+          }
+
+          for job in failed_jobs[:3]:
+              evidence["evidence"].append({
+                  "source": "github_actions",
+                  "type": "job",
+                  "finding": f"Job '{job.get('name')}' failed",
+                  "job_id": job.get("id"),
+                  "url": job.get("html_url"),
+                  "log_evidence": [],
+              })
+
+          print(json.dumps(evidence))
+          PY
+
+          evidence_file="investigation/evidence.json"
+          evidence_json="$(cat "$evidence_file")"
+
+          python - <<'PY' "$evidence_file" "$RUN_ID" "$AGENT_URL"
+          import json
+          import sys
+          import urllib.request
+
+          evidence_file, run_id, agent_url = sys.argv[1:]
+          with open(evidence_file, encoding="utf-8") as handle:
+              payload = json.load(handle)
+
+          request = urllib.request.Request(
+              f"{agent_url}/api/v1/incidents/INC-1024/investigation",
+              data=json.dumps({"source_evidence": payload}).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              result = response.read().decode()
+          with open("investigation/INC-1024.json", "w", encoding="utf-8") as handle:
+              handle.write(result)
+          print(result)
+          PY
 
       - name: Upload investigation evidence
         uses: actions/upload-artifact@v4
         with:
           name: ai-incident-investigation-${{ github.event.workflow_run.id }}
-          path: investigation/INC-1024.json
+          path: investigation/*.json
           if-no-files-found: error
