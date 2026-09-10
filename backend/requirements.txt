@@ -5,3 +5,4 @@ mcp[cli]>=2,<3
 google-genai>=1,<2
 google-cloud-logging>=3,<4
 google-cloud-run>=0.10,<1
+psycopg2-binary==2.9.10
