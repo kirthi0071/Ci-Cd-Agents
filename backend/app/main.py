@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI CI/CD Platform Engineer Agent", version="0.3.0")
+app = FastAPI(title="AI CI/CD Platform Engineer Agent", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,8 +33,13 @@ def github_get(path: str, params: dict | None = None) -> dict | list:
         return json.loads(response.read().decode("utf-8"))
 
 
+def github_get_text(path: str) -> str:
+    request = Request(f"{GITHUB_API}{path}", headers=GITHUB_HEADERS)
+    with urlopen(request, timeout=15) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
 def fetch_deployment_runs() -> list[dict]:
-    """Fetch recent GitHub Actions deployment runs for this platform repo."""
     data = github_get(
         f"/repos/{GITHUB_REPOSITORY}/actions/runs",
         {"per_page": 20, "event": "push", "branch": "main"},
@@ -108,6 +113,105 @@ def normalize_job(job: dict) -> dict:
     }
 
 
+def extract_log_evidence(log_text: str) -> list[str]:
+    patterns = (
+        "error",
+        "exception",
+        "failed",
+        "failure",
+        "traceback",
+        "modulenotfounderror",
+        "permission denied",
+        "exit code",
+    )
+    evidence: list[str] = []
+    for raw_line in log_text.splitlines():
+        line = raw_line.strip()
+        if not line or len(line) > 500:
+            continue
+        lower = line.lower()
+        if any(pattern in lower for pattern in patterns):
+            if line not in evidence:
+                evidence.append(line)
+        if len(evidence) >= 12:
+            break
+    return evidence
+
+
+def build_incident(incident_id: str) -> dict:
+    if incident_id != "INC-1024":
+        return {"incident": None, "evidence": []}
+
+    runs = fetch_deployment_runs()
+    failed_runs = [
+        run for run in runs
+        if run.get("status") == "completed" and run.get("conclusion") != "success"
+    ]
+    if not failed_runs:
+        return {
+            "incident": {
+                "id": incident_id,
+                "service": "ai-cicd-agent",
+                "environment": "production",
+                "severity": "HIGH",
+                "status": "RESOLVED",
+                "summary": "No failed GitHub Actions deployment is currently available for investigation.",
+            },
+            "evidence": [],
+        }
+
+    run = failed_runs[0]
+    jobs_data = github_get(
+        f"/repos/{GITHUB_REPOSITORY}/actions/runs/{run['id']}/jobs",
+        {"per_page": 100},
+    )
+    jobs = jobs_data.get("jobs", []) if isinstance(jobs_data, dict) else []
+    failed_jobs = [job for job in jobs if job.get("conclusion") == "failure"]
+
+    evidence = [
+        {
+            "source": "github_actions",
+            "type": "workflow_run",
+            "finding": f"{run.get('name', 'GitHub Actions')} run #{run.get('run_number')} failed",
+            "run_id": run.get("id"),
+            "commit": (run.get("head_sha") or "")[:7],
+            "url": run.get("html_url"),
+        }
+    ]
+
+    for job in failed_jobs[:3]:
+        job_evidence = {
+            "source": "github_actions",
+            "type": "job",
+            "finding": f"Job '{job.get('name')}' failed",
+            "job_id": job.get("id"),
+            "url": job.get("html_url"),
+        }
+        try:
+            logs = github_get_text(
+                f"/repos/{GITHUB_REPOSITORY}/actions/jobs/{job['id']}/logs"
+            )
+            matches = extract_log_evidence(logs)
+            if matches:
+                job_evidence["log_evidence"] = matches
+        except (HTTPError, URLError, TimeoutError):
+            job_evidence["log_evidence"] = []
+        evidence.append(job_evidence)
+
+    return {
+        "incident": {
+            "id": incident_id,
+            "service": "ai-cicd-agent",
+            "environment": "production",
+            "severity": "HIGH",
+            "status": "INVESTIGATING",
+            "summary": f"GitHub Actions deployment run #{run.get('run_number')} failed and requires investigation.",
+            "deployment": normalize_run(run),
+        },
+        "evidence": evidence,
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "ai-cicd-agent"}
@@ -115,7 +219,6 @@ def health() -> dict[str, str]:
 
 @app.get("/api/v1/deployments")
 def deployments() -> list[dict]:
-    """Return recent production deployments from GitHub Actions."""
     try:
         runs = fetch_deployment_runs()
         return [normalize_run(run) for run in runs]
@@ -125,7 +228,6 @@ def deployments() -> list[dict]:
 
 @app.get("/api/v1/deployments/{run_id}")
 def deployment_details(run_id: int) -> dict:
-    """Return a deployment plus its GitHub Actions jobs and step results."""
     try:
         run = github_get(f"/repos/{GITHUB_REPOSITORY}/actions/runs/{run_id}")
         jobs_data = github_get(
@@ -141,9 +243,25 @@ def deployment_details(run_id: int) -> dict:
         return {"deployment": None, "jobs": []}
 
 
+@app.get("/api/v1/incidents")
+def incidents() -> list[dict]:
+    try:
+        result = build_incident("INC-1024")
+        return [result["incident"]] if result["incident"] else []
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return []
+
+
+@app.get("/api/v1/incidents/{incident_id}")
+def incident_details(incident_id: str) -> dict:
+    try:
+        return build_incident(incident_id)
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return {"incident": None, "evidence": []}
+
+
 @app.get("/api/v1/overview")
 def overview() -> dict:
-    """Build overview metrics from the latest GitHub Actions runs."""
     try:
         runs = fetch_deployment_runs()
         deployments_24h = []
@@ -170,26 +288,12 @@ def overview() -> dict:
                 "successful": successful,
                 "failed": failed,
             },
-            "active_incidents": 1,
-            "ai_investigations": 1,
+            "active_incidents": 1 if failed else 0,
+            "ai_investigations": 1 if failed else 0,
         }
     except (HTTPError, URLError, TimeoutError, ValueError):
         return {
             "deployments": {"total": 0, "successful": 0, "failed": 0},
-            "active_incidents": 1,
-            "ai_investigations": 1,
+            "active_incidents": 0,
+            "ai_investigations": 0,
         }
-
-
-@app.get("/api/v1/incidents")
-def incidents() -> list[dict]:
-    return [
-        {
-            "id": "INC-1024",
-            "service": "user-service",
-            "environment": "production",
-            "severity": "HIGH",
-            "status": "INVESTIGATING",
-            "summary": "Cloud Run deployment failed startup checks",
-        }
-    ]
