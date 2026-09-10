@@ -25,6 +25,7 @@ env:
   SQL_INSTANCE: ai-cicd-agent-db
   SQL_CONNECTION_NAME: project-c98d2dac-2409-44bd-aba:asia-south1:ai-cicd-agent-db
   DB_NAME: agentdb
+  SERVICE_URL: https://ai-cicd-agent-785312592182.asia-south1.run.app
 
 jobs:
   deploy:
@@ -82,3 +83,11 @@ jobs:
             CLOUD_RUN_SERVICE=${{ env.SERVICE }}
             INSTANCE_CONNECTION_NAME=${{ env.SQL_CONNECTION_NAME }}
             DB_NAME=${{ env.DB_NAME }}
+
+      - name: Post-fix verification
+        run: |
+          set -euo pipefail
+          echo "Verifying deployed service: $SERVICE_URL"
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 "$SERVICE_URL/health"
+          echo
+          echo "POST-FIX VERIFICATION: PASSED"
