@@ -19,6 +19,8 @@ env:
   DEPLOYER_SA: github-cloud-run-deployer@project-c98d2dac-2409-44bd-aba.iam.gserviceaccount.com
   WIF_PROVIDER: projects/785312592182/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
   RUNTIME_SA: ai-cicd-agent-runtime@project-c98d2dac-2409-44bd-aba.iam.gserviceaccount.com
+  GEMINI_MODEL: gemini-2.5-flash-lite
+  GOOGLE_CLOUD_LOCATION: global
 
 jobs:
   deploy:
@@ -57,3 +59,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
           flags: '--service-account=${{ env.RUNTIME_SA }}'
+          env_vars: |
+            GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
+            GOOGLE_CLOUD_LOCATION=${{ env.GOOGLE_CLOUD_LOCATION }}
+            GEMINI_MODEL=${{ env.GEMINI_MODEL }}
