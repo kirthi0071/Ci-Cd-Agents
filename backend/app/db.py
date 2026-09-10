@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from contextlib import contextmanager
@@ -22,12 +21,11 @@ def enabled() -> bool:
 def connection():
     if not enabled():
         raise RuntimeError("Database is not configured")
-    host = f"/cloudsql/{INSTANCE_CONNECTION_NAME}"
     conn = psycopg2.connect(
         dbname=DB_NAME,
         user=DB_USER,
         password=DB_PASSWORD,
-        host=host,
+        host=f"/cloudsql/{INSTANCE_CONNECTION_NAME}",
         connect_timeout=5,
     )
     try:
@@ -98,11 +96,11 @@ def save_investigation(incident_id: str, status: str, investigation: dict, sourc
                 (
                     incident_id,
                     status,
-                    investigation.get("failure_category"),
+                    investigation.get("category"),
                     investigation.get("confidence"),
                     investigation.get("risk"),
                     investigation.get("root_cause"),
-                    investigation.get("recommended_remediation"),
+                    investigation.get("recommended_fix"),
                     Json(investigation),
                     Json(source_evidence),
                 ),
