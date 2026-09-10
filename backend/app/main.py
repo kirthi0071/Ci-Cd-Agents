@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .db import init_db, save_investigation
 from .gcp_routes import router as gcp_router
 from .investigator import investigate_incident
 from .mcp_server import mcp
@@ -16,13 +17,17 @@ from .mcp_server import mcp
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        init_db()
+    except Exception as exc:
+        print(f"Database initialization skipped: {exc}")
     async with mcp.session_manager.run():
         yield
 
 
 app = FastAPI(
     title="AI CI/CD Platform Engineer Agent",
-    version="0.7.0",
+    version="0.8.0",
     lifespan=lifespan,
 )
 app.include_router(gcp_router)
@@ -278,12 +283,17 @@ def incident_investigation(incident_id: str) -> dict:
         if not evidence.get("incident"):
             return {"incident_id": incident_id, "status": "NOT_FOUND"}
         investigation = investigate_incident(evidence)
-        return {
+        result = {
             "incident_id": incident_id,
             "status": "ANALYZED",
             "investigation": investigation,
             "source_evidence": evidence,
         }
+        try:
+            save_investigation(incident_id, "ANALYZED", investigation, evidence)
+        except Exception as exc:
+            print(f"Database persistence skipped: {exc}")
+        return result
     except (HTTPError, URLError, TimeoutError, ValueError) as exc:
         return {"incident_id": incident_id, "status": "ERROR", "error": str(exc)}
 
