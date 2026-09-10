@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import json
 from urllib.error import HTTPError, URLError
@@ -6,8 +7,22 @@ from urllib.request import Request, urlopen
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from mcp.server.transport_security import TransportSecuritySettings
 
-app = FastAPI(title="AI CI/CD Platform Engineer Agent", version="0.4.0")
+from .mcp_server import mcp
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(
+    title="AI CI/CD Platform Engineer Agent",
+    version="0.5.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,6 +30,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Mcp-Session-Id"],
 )
 
 GITHUB_REPOSITORY = "kirthi0071/Ci-Cd-Agents"
@@ -297,3 +313,18 @@ def overview() -> dict:
             "active_incidents": 0,
             "ai_investigations": 0,
         }
+
+
+# MCP is mounted beside the REST API. Cloud Run provides the stable run.app host.
+mcp_transport_security = TransportSecuritySettings(
+    allowed_hosts=[
+        "ai-cicd-agent-jeal5mhmha-el.a.run.app",
+        "ai-cicd-agent-jeal5mhmha-el.a.run.app:*",
+    ],
+)
+app.mount(
+    "/mcp",
+    mcp.streamable_http_app(
+        transport_security=mcp_transport_security,
+    ),
+)
