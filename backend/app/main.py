@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .db import init_db, save_investigation
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI CI/CD Platform Engineer Agent",
-    version="0.8.0",
+    version="0.9.0",
     lifespan=lifespan,
 )
 app.include_router(gcp_router)
@@ -48,6 +49,10 @@ GITHUB_HEADERS = {
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "ai-cicd-platform-agent",
 }
+
+
+class InvestigationRequest(BaseModel):
+    source_evidence: dict
 
 
 def github_get(path: str, params: dict | None = None) -> dict | list:
@@ -232,6 +237,21 @@ def build_incident(incident_id: str) -> dict:
     }
 
 
+def run_investigation(incident_id: str, evidence: dict) -> dict:
+    investigation = investigate_incident(evidence)
+    result = {
+        "incident_id": incident_id,
+        "status": "ANALYZED",
+        "investigation": investigation,
+        "source_evidence": evidence,
+    }
+    try:
+        save_investigation(incident_id, "ANALYZED", investigation, evidence)
+    except Exception as exc:
+        print(f"Database persistence skipped: {exc}")
+    return result
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "ai-cicd-agent"}
@@ -282,20 +302,26 @@ def incident_investigation(incident_id: str) -> dict:
         evidence = build_incident(incident_id)
         if not evidence.get("incident"):
             return {"incident_id": incident_id, "status": "NOT_FOUND"}
-        investigation = investigate_incident(evidence)
-        result = {
-            "incident_id": incident_id,
-            "status": "ANALYZED",
-            "investigation": investigation,
-            "source_evidence": evidence,
-        }
-        try:
-            save_investigation(incident_id, "ANALYZED", investigation, evidence)
-        except Exception as exc:
-            print(f"Database persistence skipped: {exc}")
-        return result
+        return run_investigation(incident_id, evidence)
     except (HTTPError, URLError, TimeoutError, ValueError) as exc:
         return {"incident_id": incident_id, "status": "ERROR", "error": str(exc)}
+
+
+@app.post("/api/v1/incidents/{incident_id}/investigation")
+def submit_incident_investigation(incident_id: str, request: InvestigationRequest) -> dict:
+    """Run an investigation using evidence collected by a trusted CI workflow."""
+    evidence = request.source_evidence
+    evidence.setdefault(
+        "incident",
+        {
+            "id": incident_id,
+            "service": "ai-cicd-agent",
+            "environment": "production",
+            "severity": "HIGH",
+            "status": "INVESTIGATING",
+        },
+    )
+    return run_investigation(incident_id, evidence)
 
 
 @app.get("/api/v1/overview")
