@@ -1,0 +1,68 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: project-c98d2dac-2409-44bd-aba
+  REGION: asia-south1
+  GAR_REPOSITORY: cloud-run-agent
+  SERVICE: ai-cicd-agent-ui
+  DEPLOYER_SA: github-cloud-run-deployer@project-c98d2dac-2409-44bd-aba.iam.gserviceaccount.com
+  WIF_PROVIDER: projects/785312592182/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+  RUNTIME_SA: ai-cicd-agent-runtime@project-c98d2dac-2409-44bd-aba.iam.gserviceaccount.com
+  API_BASE_URL: https://ai-cicd-agent-785312592182.asia-south1.run.app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            --build-arg VITE_API_BASE_URL=${{ env.API_BASE_URL }} \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }} \
+            ./frontend
+
+      - name: Push frontend image
+        run: |
+          docker push \
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
+
+      - name: Deploy frontend to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
+          flags: --service-account=${{ env.RUNTIME_SA }} --allow-unauthenticated
+
+      - name: Verify frontend
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')
+          echo "Frontend URL: $URL"
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$URL" | grep -q "CI/CD Platform"
+          echo "FRONTEND VERIFICATION: PASSED"
