@@ -33,6 +33,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Controlled incident demo failure
+        run: |
+          if [ -f backend/DEMO_FAIL ]; then
+            echo "DEMO_INCIDENT: controlled deployment failure requested"
+            echo "Remove backend/DEMO_FAIL to restore the deployment."
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
