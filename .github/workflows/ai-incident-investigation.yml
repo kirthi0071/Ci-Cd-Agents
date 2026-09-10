@@ -141,24 +141,84 @@ jobs:
           git add backend/DEMO_FAIL
           git commit -m "fix(agent): remediate controlled deployment incident"
           git push --set-upstream origin "$BRANCH"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path("investigation/INC-1024.json").read_text())
+          investigation = result.get("investigation", {})
+          evidence = investigation.get("evidence", [])
+          evidence_text = "\n".join(f"- {item}" for item in evidence) or "- See investigation artifact"
+          body = f'''## AI CI/CD Agent remediation
+
+The deployment failed and the AI investigation produced the following diagnosis.
+
+### Root cause
+{investigation.get("root_cause", "Controlled demo deployment failure")}
+
+### Category
+{investigation.get("category", "UNKNOWN")}
+
+### Confidence
+{investigation.get("confidence", "N/A")}
+
+### Evidence
+{evidence_text}
+
+### Recommended fix
+{investigation.get("recommended_fix", "Remove the controlled demo failure marker and rerun CI/CD.")}
+
+### Automated remediation
+- Failed Deploy Backend run: {RUN_ID}
+- Remediation: remove `backend/DEMO_FAIL`
+- Human approval is required before merge.
+
+After merge, Deploy Backend will run again and the verification workflow will check Cloud Run health.'''
+          Path("investigation/pr-body.md").write_text(body)
+          PY
+
           gh pr create \
             --base main \
             --head "$BRANCH" \
             --title "fix(agent): remediate deployment incident #${RUN_ID}" \
-            --body "## AI CI/CD Agent remediation
-
-The deployment failed because the controlled demo failure marker `backend/DEMO_FAIL` was present.
-
-### Evidence
-- Failed Deploy Backend run: ${RUN_ID}
-- Agent investigation: INC-1024
-- Remediation: remove the controlled failure marker
-
-After merge, the normal Deploy Backend workflow will run again."
+            --body-file investigation/pr-body.md
 
       - name: Upload investigation evidence
         uses: actions/upload-artifact@v4
         with:
           name: ai-incident-investigation-${{ github.event.workflow_run.id }}
           path: investigation/*.json
+          if-no-files-found: error
+
+  verify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Cloud Run health after successful deployment
+        env:
+          AGENT_URL: https://ai-cicd-agent-jeal5mhmha-el.a.run.app
+        run: |
+          set -euo pipefail
+          echo "Verifying deployed service: ${AGENT_URL}"
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 "${AGENT_URL}/health"
+          echo
+          echo "POST-FIX VERIFICATION: PASSED"
+
+      - name: Record resolved deployment
+        run: |
+          mkdir -p verification
+          cat > verification/result.json <<EOF
+          {
+            "status": "RESOLVED",
+            "workflow_run_id": "${{ github.event.workflow_run.id }}",
+            "workflow_run_number": "${{ github.event.workflow_run.run_number }}",
+            "verification": "Cloud Run /health returned HTTP 200"
+          }
+          EOF
+
+      - name: Upload verification result
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-fix-verification-${{ github.event.workflow_run.id }}
+          path: verification/result.json
           if-no-files-found: error
